@@ -5,18 +5,10 @@ import GameCarousel from "@/components/game-carousel/GameCarousel";
 import { GameCard } from "@/components/game-carousel/GameCarousel";
 import { Game } from "@/models/Game";
 import { gameService } from "@/services/GameService";
-import { authService } from "@/services/AuthService";
 import Footer from "@/shared/footer/Footer";
 import Link from "next/link";
 import { MouseEvent, useEffect, useMemo, useState } from "react";
-import { useAuth } from "@/context/AuthContext";
 import { Skeleton } from "primereact/skeleton";
-import { isViewerUser } from "@/services/user-role";
-import {
-    getGameResultFlags,
-    getGameResultGameId,
-    loadGameResultList,
-} from "@/services/GameResultState";
 import { getGameDetailHref } from "@/services/game-detail-route";
 import type {
     GenreCatalogItem,
@@ -28,6 +20,8 @@ import type {
 type SectionKey = "trending" | "topRated" | "newReleases" | "upcomingAnticipated" | "indie";
 type ViewMode = "carousel" | "grid";
 
+const NEW_RELEASES_DATE_RANGE = { from: "2025-08-20", to: "2026-08-20" };
+
 type HubMission = {
     id: number;
     title: string;
@@ -37,7 +31,6 @@ type HubMission = {
 };
 
 type CatalogTabKey = "genres" | "stores" | "platforms" | "tags";
-type GameStatusFlags = { isPlayed: boolean; isWishlist: boolean };
 
 const SECTION_VIEW_STORAGE_KEY = "homeSectionViewModes";
 
@@ -386,20 +379,14 @@ function HomeGamesSection({
     searchHref,
     games,
     viewMode,
-    gameStatusById,
-    onGameStatusChange,
     onChangeView,
-    allowStatusActions,
 }: {
     sectionKey: SectionKey;
     title: string;
     searchHref: string;
     games: Game[];
     viewMode: ViewMode;
-    gameStatusById: Record<string, GameStatusFlags>;
-    onGameStatusChange: (gameId: number, next: GameStatusFlags) => void;
     onChangeView: (section: SectionKey, mode: ViewMode) => void;
-    allowStatusActions: boolean;
 }) {
     const [openMenuId, setOpenMenuId] = useState<number | null>(null);
 
@@ -458,8 +445,6 @@ function HomeGamesSection({
                     title={title}
                     games={games}
                     showTitle={false}
-                    gameStatusById={gameStatusById}
-                    onGameStatusChange={onGameStatusChange}
                     cardClassName="w-64 md:w-96"
                     cardMediaClassName="h-36 md:h-56"
                 />
@@ -468,8 +453,6 @@ function HomeGamesSection({
                     <div className="container mx-auto px-4 md:px-8 lg:px-12">
                         <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {gamesForGrid.map((game, index) => {
-                                const status = gameStatusById[String(game.id)];
-
                                 return (
                                     <div key={game.id} className={index > 3 ? "hidden md:block" : "block"}>
                                         <GameCard
@@ -478,10 +461,6 @@ function HomeGamesSection({
                                             toggleMenu={toggleMenu}
                                             className="w-full"
                                             mediaClassName="h-36 md:h-56"
-                                            initialIsPlayed={status?.isPlayed}
-                                            initialIsWishlist={status?.isWishlist}
-                                            onStatusChange={onGameStatusChange}
-                                            allowStatusActions={allowStatusActions}
                                         />
                                     </div>
                                 );
@@ -552,12 +531,13 @@ function CatalogTabsSection({
                     const gamesCount = hasGamesCount ? item.games_count : null;
                     const secondary = "domain" in item ? item.domain : "language" in item ? item.language : null;
                     const backgroundImage = "image_background" in item ? item.image_background : null;
+                    const searchParamKey =
+                        active.key === "genres" || active.key === "platforms" || active.key === "stores"
+                            ? active.key
+                            : null;
 
-                    return (
-                        <article
-                            key={`${active.key}-${item.id}`}
-                            className="relative overflow-hidden rounded-xl border border-gray-800 min-h-[150px]"
-                        >
+                    const cardContent = (
+                        <>
                             <div
                                 className="absolute inset-0 bg-cover bg-center"
                                 style={{ backgroundImage: `url(${backgroundImage || "/placeholder.jpg"})` }}
@@ -580,6 +560,27 @@ function CatalogTabsSection({
                                     )}
                                 </div>
                             </div>
+                        </>
+                    );
+
+                    if (searchParamKey) {
+                        return (
+                            <Link
+                                key={`${active.key}-${item.id}`}
+                                href={`/search?${searchParamKey}=${encodeURIComponent(item.slug)}`}
+                                className="relative overflow-hidden rounded-xl border border-gray-800 min-h-[150px] block transition-transform hover:scale-[1.02]"
+                            >
+                                {cardContent}
+                            </Link>
+                        );
+                    }
+
+                    return (
+                        <article
+                            key={`${active.key}-${item.id}`}
+                            className="relative overflow-hidden rounded-xl border border-gray-800 min-h-[150px]"
+                        >
+                            {cardContent}
                         </article>
                     );
                 })}
@@ -589,8 +590,6 @@ function CatalogTabsSection({
 }
 
 export default function Home() {
-    const { logout, user } = useAuth();
-    const allowStatusActions = !isViewerUser(user);
     const [trendingGames, setTrendingGames] = useState<Game[]>([]);
     const [topRatedGames, setTopRatedGames] = useState<Game[]>([]);
     const [newReleaseGames, setNewReleaseGames] = useState<Game[]>([]);
@@ -609,7 +608,6 @@ export default function Home() {
     });
     const [featuredGame, setFeaturedGame] = useState<Game | null>(null);
     const [sectionViewModes, setSectionViewModes] = useState<Record<SectionKey, ViewMode>>(getInitialSectionViewModes);
-    const [gameStatusById, setGameStatusById] = useState<Record<string, GameStatusFlags>>({});
     const [loading, setLoading] = useState(true);
 
     const homeTabs = useMemo(
@@ -645,13 +643,6 @@ export default function Home() {
         }));
     };
 
-    const handleGameStatusChange = (gameId: number, next: GameStatusFlags) => {
-        setGameStatusById((previous) => ({
-            ...previous,
-            [String(gameId)]: next,
-        }));
-    };
-
     const formatDate = (date: Date): string => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -664,16 +655,13 @@ export default function Home() {
         const oneYearAgo = new Date(today);
         oneYearAgo.setFullYear(today.getFullYear() - 1);
 
-        const sixMonthsAgo = new Date(today);
-        sixMonthsAgo.setMonth(today.getMonth() - 6);
-
         const oneYearFromNow = new Date(today);
         oneYearFromNow.setFullYear(today.getFullYear() + 1);
 
         return {
             trending: `/search?ordering=-added&dates=${formatDate(oneYearAgo)},${formatDate(today)}`,
             topRated: "/search?ordering=-rating",
-            newReleases: `/search?ordering=-released&dates=${formatDate(sixMonthsAgo)},${formatDate(today)}`,
+            newReleases: `/search?ordering=-released&dates=${NEW_RELEASES_DATE_RANGE.from},${NEW_RELEASES_DATE_RANGE.to}`,
             upcomingAnticipated: `/search?ordering=-added&dates=${formatDate(today)},${formatDate(oneYearFromNow)}`,
             indie: "/search?genres=indie&ordering=-added",
         } satisfies Record<SectionKey, string>;
@@ -717,15 +705,10 @@ export default function Home() {
     useEffect(() => {
         const loadHomeData = async () => {
             try {
-                await authService.checkUser();
-
                 const today = new Date();
 
                 const oneYearAgo = new Date(today);
                 oneYearAgo.setFullYear(today.getFullYear() - 1);
-
-                const sixMonthsAgo = new Date(today);
-                sixMonthsAgo.setMonth(today.getMonth() - 6);
 
                 const oneYearFromNow = new Date(today);
                 oneYearFromNow.setFullYear(today.getFullYear() + 1);
@@ -746,7 +729,7 @@ export default function Home() {
                         page: 1,
                         pageSize: 20,
                         ordering: "-released",
-                        dates: `${formatDate(sixMonthsAgo)},${formatDate(today)}`,
+                        dates: `${NEW_RELEASES_DATE_RANGE.from},${NEW_RELEASES_DATE_RANGE.to}`,
                     }),
                     gameService.searchGames({
                         page: 1,
@@ -761,23 +744,6 @@ export default function Home() {
                         ordering: "-added",
                     }),
                 ]);
-
-                try {
-                    const savedGames = await loadGameResultList(true);
-                    const nextStatusById = savedGames.reduce<Record<string, GameStatusFlags>>((acc, item) => {
-                        const gameId = getGameResultGameId(item);
-                        if (!gameId) {
-                            return acc;
-                        }
-
-                        acc[gameId] = getGameResultFlags(item);
-                        return acc;
-                    }, {});
-
-                    setGameStatusById(nextStatusById);
-                } catch {
-                    setGameStatusById({});
-                }
 
                 console.log(trendingData);
 
@@ -794,12 +760,6 @@ export default function Home() {
                 setIndieGames(indie);
                 setFeaturedGame(trending[0] || topRated[0] || newReleases[0] || null);
             } catch (error) {
-                const status = (error as { status?: number })?.status;
-                if (status === 401) {
-                    logout();
-                    return;
-                }
-
                 console.error("Error loading home games:", error);
                 setTrendingGames([]);
                 setTopRatedGames([]);
@@ -807,14 +767,13 @@ export default function Home() {
                 setUpcomingAnticipatedGames([]);
                 setIndieGames([]);
                 setFeaturedGame(null);
-                setGameStatusById({});
             } finally {
                 setLoading(false);
             }
         };
 
         loadHomeData();
-    }, [logout]);
+    }, []);
 
     if (loading) {
         return (
@@ -855,10 +814,7 @@ export default function Home() {
                     searchHref={sectionSearchHref.trending}
                     games={trendingGames}
                     viewMode={sectionViewModes.trending}
-                    gameStatusById={gameStatusById}
-                    onGameStatusChange={handleGameStatusChange}
                     onChangeView={handleChangeSectionView}
-                    allowStatusActions={allowStatusActions}
                 />
                 {/* <SectionDivider label="Radar visual" />
                 <SpotlightMosaic games={visualShowcaseGames} onOpenGame={(gameId) => router.push(`/game/${gameId}`)} /> */}
@@ -871,10 +827,7 @@ export default function Home() {
                     searchHref={sectionSearchHref.newReleases}
                     games={newReleaseGames}
                     viewMode={sectionViewModes.newReleases}
-                    gameStatusById={gameStatusById}
-                    onGameStatusChange={handleGameStatusChange}
                     onChangeView={handleChangeSectionView}
-                    allowStatusActions={allowStatusActions}
                 />
                   <SectionDivider label="Tabs destacados" />
                 <HomeTabsShowcase tabs={homeTabs} />
@@ -924,10 +877,7 @@ export default function Home() {
                     searchHref={sectionSearchHref.topRated}
                     games={topRatedGames}
                     viewMode={sectionViewModes.topRated}
-                    gameStatusById={gameStatusById}
-                    onGameStatusChange={handleGameStatusChange}
                     onChangeView={handleChangeSectionView}
-                    allowStatusActions={allowStatusActions}
                 />
                 <HomeGamesSection
                     sectionKey="upcomingAnticipated"
@@ -935,10 +885,7 @@ export default function Home() {
                     searchHref={sectionSearchHref.upcomingAnticipated}
                     games={upcomingAnticipatedGames}
                     viewMode={sectionViewModes.upcomingAnticipated}
-                    gameStatusById={gameStatusById}
-                    onGameStatusChange={handleGameStatusChange}
                     onChangeView={handleChangeSectionView}
-                    allowStatusActions={allowStatusActions}
                 />
 
                 <CatalogTabsSection
@@ -955,10 +902,7 @@ export default function Home() {
                     searchHref={sectionSearchHref.indie}
                     games={indieGames}
                     viewMode={sectionViewModes.indie}
-                    gameStatusById={gameStatusById}
-                    onGameStatusChange={handleGameStatusChange}
                     onChangeView={handleChangeSectionView}
-                    allowStatusActions={allowStatusActions}
                 />
             </div>
 

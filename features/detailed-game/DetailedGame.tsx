@@ -2,21 +2,11 @@
 import { useEffect, useRef, useState, MouseEvent } from 'react';
 import { Game, Movie } from '@/models/Game';
 import { gameService } from '@/services/GameService';
-import { gameResultService } from '@/services/GameResultService';
-import {
-    findGameResultByGameId,
-    getGameResultFlags,
-    loadGameResultList,
-    updateCachedGameResultFlags,
-} from '@/services/GameResultState';
 import Image from 'next/image';
 import 'primeicons/primeicons.css';
 import { useRouter } from 'next/navigation';
 import GameCarousel, { GameCard, GameCardSkeleton } from '@/components/game-carousel/GameCarousel';
 import { Skeleton } from 'primereact/skeleton';
-import { extractErrorMessage } from '@/services/api-error';
-import { useAuth } from '@/context/AuthContext';
-import { isViewerUser } from '@/services/user-role';
 
 const getRatingColor = (title: string) => {
     switch (title.toLowerCase()) {
@@ -32,11 +22,7 @@ interface Props {
     gameSlug: string;
 }
 
-type ToastType = 'success' | 'error';
-
 export default function DetailedGame({ gameSlug }: Props) {
-    const { user } = useAuth();
-    const allowStatusActions = !isViewerUser(user);
     const [game, setGame] = useState<Game | null>(null);
     const [movies, setMovies] = useState<Movie[]>([]);
     const [seriesGames, setSeriesGames] = useState<Game[]>([]);
@@ -46,94 +32,8 @@ export default function DetailedGame({ gameSlug }: Props) {
     const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
     const [openMenuId, setOpenMenuId] = useState<number | null>(null);
-    const [isPlayed, setIsPlayed] = useState(false);
-    const [isWishlist, setIsWishlist] = useState(false);
-    const [isUpdatingPlayed, setIsUpdatingPlayed] = useState(false);
-    const [isUpdatingWishlist, setIsUpdatingWishlist] = useState(false);
-    const [toast, setToast] = useState<{ message: string; type: ToastType; visible: boolean }>({
-        message: '',
-        type: 'success',
-        visible: false,
-    });
     const galleryScreenshots = game?.short_screenshots || [];
-    const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const router = useRouter();
-
-    const showToast = (message: string, type: ToastType) => {
-        setToast({ message, type, visible: true });
-
-        if (toastTimeoutRef.current) {
-            clearTimeout(toastTimeoutRef.current);
-        }
-
-        toastTimeoutRef.current = setTimeout(() => {
-            setToast(prev => ({ ...prev, visible: false }));
-        }, 3000);
-    };
-
-    const loadGameResultState = async (gameId: number) => {
-        try {
-            const list = await loadGameResultList();
-            const gameResult = findGameResultByGameId(list, gameId);
-            const flags = getGameResultFlags(gameResult);
-
-            setIsPlayed(flags.isPlayed);
-            setIsWishlist(flags.isWishlist);
-        } catch {
-            setIsPlayed(false);
-            setIsWishlist(false);
-        }
-    };
-
-    const handleTogglePlayed = async () => {
-        if (isUpdatingPlayed || !game) {
-            return;
-        }
-
-        setIsUpdatingPlayed(true);
-        try {
-            if (isPlayed) {
-                await gameResultService.setGameAsNotPlayed(game.id);
-                setIsPlayed(false);
-                updateCachedGameResultFlags(game.id, { isPlayed: false });
-                showToast('Juego quitado de jugados correctamente.', 'success');
-            } else {
-                await gameResultService.setGameAsPlayed(game.id);
-                setIsPlayed(true);
-                updateCachedGameResultFlags(game.id, { isPlayed: true });
-                showToast('Juego marcado como jugado correctamente.', 'success');
-            }
-        } catch (error) {
-            showToast(extractErrorMessage(error, 'No se pudo actualizar el estado de jugado.'), 'error');
-        } finally {
-            setIsUpdatingPlayed(false);
-        }
-    };
-
-    const handleToggleWishlist = async () => {
-        if (isUpdatingWishlist || !game) {
-            return;
-        }
-
-        setIsUpdatingWishlist(true);
-        try {
-            if (isWishlist) {
-                await gameResultService.setGameAsNotWishlist(game.id);
-                setIsWishlist(false);
-                updateCachedGameResultFlags(game.id, { isWishlist: false });
-                showToast('Juego quitado de previstos correctamente.', 'success');
-            } else {
-                await gameResultService.setGameAsWishlist(game.id);
-                setIsWishlist(true);
-                updateCachedGameResultFlags(game.id, { isWishlist: true });
-                showToast('Juego añadido a previstos correctamente.', 'success');
-            }
-        } catch (error) {
-            showToast(extractErrorMessage(error, 'No se pudo actualizar el estado de previstos.'), 'error');
-        } finally {
-            setIsUpdatingWishlist(false);
-        }
-    };
 
     const handleGameClick = (event: MouseEvent<HTMLAnchorElement>) => {
         event.preventDefault();
@@ -166,14 +66,6 @@ export default function DetailedGame({ gameSlug }: Props) {
     }, []);
 
     useEffect(() => {
-        return () => {
-            if (toastTimeoutRef.current) {
-                clearTimeout(toastTimeoutRef.current);
-            }
-        };
-    }, []);
-
-    useEffect(() => {
         const loadGame = async () => {
             try {
                 // Critical data
@@ -190,13 +82,6 @@ export default function DetailedGame({ gameSlug }: Props) {
                 setMovies(moviesData?.results || []);
                 setSeriesGames(seriesData?.results || []);
                 setSuggestedGames(suggestedData?.results || []);
-
-                if (allowStatusActions) {
-                    await loadGameResultState(gameData.id);
-                } else {
-                    setIsPlayed(false);
-                    setIsWishlist(false);
-                }
             } catch (error) {
                 console.error("Error loading game data:", error);
             } finally {
@@ -204,7 +89,7 @@ export default function DetailedGame({ gameSlug }: Props) {
             }
         };
         loadGame();
-    }, [allowStatusActions, gameSlug]);
+    }, [gameSlug]);
 
     if (loading) return (
         <div className="min-h-screen bg-[#151515] text-white pt-10">
@@ -245,20 +130,6 @@ export default function DetailedGame({ gameSlug }: Props) {
 
     return (
         <div className="min-h-screen bg-[#151515] text-white">
-            {toast.visible && (
-                <div
-                    className={`fixed top-6 right-6 z-[100] px-4 py-3 rounded-lg border shadow-lg transition-all ${
-                        toast.type === 'success'
-                            ? 'bg-green-600/90 border-green-400 text-white'
-                            : 'bg-red-600/90 border-red-400 text-white'
-                    }`}
-                    role="status"
-                    aria-live="polite"
-                >
-                    {toast.message}
-                </div>
-            )}
-
             {/* Header / Hero Section */}
             <div className="relative h-[60vh] w-full overflow-hidden">
                 <div 
@@ -302,35 +173,6 @@ export default function DetailedGame({ gameSlug }: Props) {
                                 </span>
                             )}
                         </div>
-
-                        {allowStatusActions && (
-                            <div className="flex items-center gap-3 mt-4">
-                                <button
-                                    onClick={handleTogglePlayed}
-                                    disabled={isUpdatingPlayed}
-                                    className={`w-10 h-10 rounded-full text-white flex items-center justify-center backdrop-blur-md transition-all border ${
-                                        isPlayed
-                                            ? 'bg-green-600 border-transparent'
-                                            : 'bg-white/10 hover:bg-green-600 border-white/10 hover:border-transparent hover:scale-110'
-                                    } ${isUpdatingPlayed ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:scale-105'}`}
-                                    title={isPlayed ? 'Jugado' : 'Marcar como Jugado'}
-                                >
-                                    <i className="pi pi-check text-lg"></i>
-                                </button>
-                                <button
-                                    onClick={handleToggleWishlist}
-                                    disabled={isUpdatingWishlist}
-                                    className={`w-10 h-10 rounded-full text-white flex items-center justify-center backdrop-blur-md transition-all border ${
-                                        isWishlist
-                                            ? 'bg-blue-600 border-transparent'
-                                            : 'bg-white/10 hover:bg-blue-600 border-white/10 hover:border-transparent hover:scale-110'
-                                    } ${isUpdatingWishlist ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:scale-105'}`}
-                                    title={isWishlist ? 'Previsto' : 'Añadir a Previstos'}
-                                >
-                                    <i className="pi pi-clock text-lg"></i>
-                                </button>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>

@@ -1,26 +1,47 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Button } from 'primereact/button';
 import { Sidebar } from 'primereact/sidebar';
 import Image from 'next/image';
-import { useAuth } from '@/context/AuthContext';
-import { isViewerUser } from '@/services/user-role';
+import { gameService } from '@/services/GameService';
+import { Game } from '@/models/Game';
+import { getGameDetailHref } from '@/services/game-detail-route';
+import { getWishlist, WISHLIST_CHANGE_EVENT, WishlistItem } from '@/services/wishlist';
+
+type MegaMenuKey = 'games' | 'genres' | 'platforms' | 'stores' | 'wishlist';
+
+const SEARCH_NAV_LINKS: Array<{ href: string; label: string; icon: string; menuKey: MegaMenuKey }> = [
+    { href: '/search', label: 'Juegos', icon: 'pi-search', menuKey: 'games' },
+    { href: '/searchGenres', label: 'Generos', icon: 'pi-tags', menuKey: 'genres' },
+    { href: '/searchPlatforms', label: 'Plataformas', icon: 'pi-desktop', menuKey: 'platforms' },
+    { href: '/searchStores', label: 'Stores', icon: 'pi-shopping-bag', menuKey: 'stores' },
+];
+
+const WISHLIST_NAV_LINK = { href: '/wishlist', label: 'My Wishlist', icon: 'pi-heart', menuKey: 'wishlist' as const };
+
+const MEGA_MENU_CARD_LIMIT = 6;
+
+interface MegaMenuCard {
+    id: number | string;
+    name: string;
+    image: string;
+    meta?: string;
+    href: string;
+}
 
 export default function Navbar() {
     const [scrolled, setScrolled] = useState(false);
-    const profileMenuRef = useRef<HTMLDivElement>(null);
-    const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
     const pathname = usePathname();
 
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const { user, logout } = useAuth();
-    const isViewer = isViewerUser(user);
-    const profileImage = user?.profileimg || user?.ProfileImg || user?.profileImg || user?.avatar || user?.image || '/Logo.png';
-    const profileName = user?.username || user?.name || user?.Name || 'Jugador';
-    const profileEmail = user?.email || user?.Email || '';
+    const [activeMegaMenu, setActiveMegaMenu] = useState<MegaMenuKey | null>(null);
+    const [trendingGames, setTrendingGames] = useState<Game[]>([]);
+    const [genresPreview, setGenresPreview] = useState<MegaMenuCard[]>([]);
+    const [platformsPreview, setPlatformsPreview] = useState<MegaMenuCard[]>([]);
+    const [storesPreview, setStoresPreview] = useState<MegaMenuCard[]>([]);
+    const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
 
     const isRouteActive = (href: string) => {
         if (href === '/') {
@@ -28,13 +49,11 @@ export default function Navbar() {
         }
 
         if (href === '/search') {
-            return pathname.startsWith('/search');
+            return pathname === '/search' || pathname.startsWith('/search/');
         }
 
         return pathname === href || pathname.startsWith(`${href}/`);
     };
-
-   
 
     useEffect(() => {
         const handleScroll = () => {
@@ -47,34 +66,92 @@ export default function Navbar() {
     }, []);
 
     useEffect(() => {
-        if (!isProfileMenuOpen) {
-            return;
-        }
+        let mounted = true;
 
-        const handleClickOutside = (event: globalThis.MouseEvent) => {
-            if (!profileMenuRef.current) {
-                return;
-            }
+        const loadMegaMenuData = async () => {
+            try {
+                const [gamesResult, catalogModule] = await Promise.all([
+                    gameService.searchGames({ ordering: '-added', pageSize: MEGA_MENU_CARD_LIMIT }),
+                    import('@/app/static/catalog-data'),
+                ]);
 
-            if (!profileMenuRef.current.contains(event.target as Node)) {
-                setIsProfileMenuOpen(false);
+                if (!mounted) return;
+
+                setTrendingGames(Array.isArray(gamesResult?.items) ? gamesResult.items : []);
+
+                setGenresPreview(
+                    catalogModule.genresCatalog.slice(0, MEGA_MENU_CARD_LIMIT).map((genre) => ({
+                        id: genre.id,
+                        name: genre.name,
+                        image: genre.image_background,
+                        meta: `${genre.games_count.toLocaleString()} juegos`,
+                        href: `/search?genres=${encodeURIComponent(genre.slug)}`,
+                    }))
+                );
+
+                setPlatformsPreview(
+                    catalogModule.platformsCatalog.slice(0, MEGA_MENU_CARD_LIMIT).map((platform) => ({
+                        id: platform.id,
+                        name: platform.name,
+                        image: platform.image_background,
+                        meta: `${platform.games_count.toLocaleString()} juegos`,
+                        href: `/search?platforms=${encodeURIComponent(platform.slug)}`,
+                    }))
+                );
+
+                setStoresPreview(
+                    catalogModule.storesCatalog.slice(0, MEGA_MENU_CARD_LIMIT).map((store) => ({
+                        id: store.id,
+                        name: store.name,
+                        image: store.image_background,
+                        meta: `${store.games_count.toLocaleString()} juegos`,
+                        href: `/search?stores=${encodeURIComponent(store.slug)}`,
+                    }))
+                );
+            } catch {
+                if (mounted) {
+                    setTrendingGames([]);
+                }
             }
         };
 
-        const handleEscape = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                setIsProfileMenuOpen(false);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('keydown', handleEscape);
+        void loadMegaMenuData();
 
         return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('keydown', handleEscape);
+            mounted = false;
         };
-    }, [isProfileMenuOpen]);
+    }, []);
+
+    useEffect(() => {
+        const refreshWishlist = () => setWishlistItems(getWishlist());
+        refreshWishlist();
+
+        window.addEventListener(WISHLIST_CHANGE_EVENT, refreshWishlist);
+        return () => window.removeEventListener(WISHLIST_CHANGE_EVENT, refreshWishlist);
+    }, []);
+
+    const megaMenuCards = useMemo<Record<MegaMenuKey, MegaMenuCard[]>>(() => ({
+        games: trendingGames.slice(0, MEGA_MENU_CARD_LIMIT).map((game) => ({
+            id: game.id,
+            name: game.name,
+            image: game.background_image,
+            meta: `⭐ ${game.rating}`,
+            href: getGameDetailHref(game),
+        })),
+        genres: genresPreview,
+        platforms: platformsPreview,
+        stores: storesPreview,
+        wishlist: wishlistItems.slice(0, MEGA_MENU_CARD_LIMIT).map((item) => ({
+            id: item.id,
+            name: item.name,
+            image: item.background_image,
+            href: getGameDetailHref(item),
+        })),
+    }), [trendingGames, genresPreview, platformsPreview, storesPreview, wishlistItems]);
+
+    const megaMenuLinks = [...SEARCH_NAV_LINKS, WISHLIST_NAV_LINK];
+    const activeMegaMenuLink = megaMenuLinks.find((item) => item.menuKey === activeMegaMenu);
+    const activeCards = activeMegaMenu ? megaMenuCards[activeMegaMenu] : [];
 
     return (
         <>
@@ -101,183 +178,88 @@ export default function Navbar() {
                             />
                         </div>
                         <span className="text-primary-500 text-xl tracking-tight transition-colors duration-300" style={{ fontFamily: 'var(--font-press-start-2p)', textShadow: '2px 2px 0px #8B2500' }}>
-                            Games FE
+                            Zgaming
                         </span>
                     </Link>
 
                     {/* Desktop Menu */}
-                    <div className="hidden md:flex items-center gap-8">
+                    <div
+                        className="hidden md:flex items-center gap-1 relative"
+                        onMouseLeave={() => setActiveMegaMenu(null)}
+                    >
                         <Link
                             key="Inicio"
                             href="/"
                             style={{ fontFamily: 'var(--font-press-start-2p)' }}
+                            onMouseEnter={() => setActiveMegaMenu(null)}
                             className={`relative transition-colors font-bold text-[10px] uppercase tracking-wider group py-2 px-3 rounded-md border flex items-center gap-2 ${isRouteActive('/') ? 'text-white bg-primary-500/25 border-primary-500/60 shadow-[0_0_14px_rgba(255,66,0,0.45)]' : 'text-gray-300 hover:text-white border-transparent hover:bg-white/5'}`}
                         >
                             <i className={`pi pi-home text-white text-lg transition-all duration-300 group-hover:scale-125 group-hover:rotate-12 group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] ${isRouteActive('/') ? 'scale-125 text-primary-400 drop-shadow-[0_0_12px_rgba(255,66,0,0.9)]' : ''}`}></i>
                             <span>Inicio</span>
                             <span className={`absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-300 ease-out shadow-[0_0_12px_rgba(255,66,0,0.6)] ${isRouteActive('/') ? 'w-full opacity-100' : 'w-0 opacity-0 group-hover:w-full group-hover:opacity-100'}`}></span>
                         </Link>
-                        <div className="relative group/menu">
+                        {megaMenuLinks.map((item) => (
                             <Link
-                                href="/search"
+                                key={item.href}
+                                href={item.href}
                                 style={{ fontFamily: 'var(--font-press-start-2p)' }}
-                                className={`relative transition-colors font-bold text-[10px] uppercase tracking-wider group py-2 px-3 rounded-md border flex items-center gap-2 ${isRouteActive('/search') ? 'text-white bg-primary-500/25 border-primary-500/60 shadow-[0_0_14px_rgba(255,66,0,0.45)]' : 'text-gray-300 hover:text-white border-transparent hover:bg-white/5'}`}
+                                onMouseEnter={() => setActiveMegaMenu(item.menuKey)}
+                                className={`relative transition-colors font-bold text-[10px] uppercase tracking-wider group py-2 px-3 rounded-md border flex items-center gap-2 ${isRouteActive(item.href) ? 'text-white bg-primary-500/25 border-primary-500/60 shadow-[0_0_14px_rgba(255,66,0,0.45)]' : 'text-gray-300 hover:text-white border-transparent hover:bg-white/5'}`}
                             >
-                                <i className={`pi pi-search text-white text-lg transition-all duration-300 group-hover:scale-125 group-hover:rotate-12 group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] ${isRouteActive('/search') ? 'scale-125 text-primary-400 drop-shadow-[0_0_12px_rgba(255,66,0,0.9)]' : ''}`}></i>
-                                <span>Buscar</span>
-                                <span className={`absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-300 ease-out shadow-[0_0_12px_rgba(255,66,0,0.6)] ${isRouteActive('/search') ? 'w-full opacity-100' : 'w-0 opacity-0 group-hover:w-full group-hover:opacity-100'}`}></span>
+                                <i className={`pi ${item.icon} text-white text-lg transition-all duration-300 group-hover:scale-125 group-hover:rotate-12 group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] ${isRouteActive(item.href) ? 'scale-125 text-primary-400 drop-shadow-[0_0_12px_rgba(255,66,0,0.9)]' : ''}`}></i>
+                                <span>{item.label}</span>
+                                <span className={`absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-300 ease-out shadow-[0_0_12px_rgba(255,66,0,0.6)] ${isRouteActive(item.href) ? 'w-full opacity-100' : 'w-0 opacity-0 group-hover:w-full group-hover:opacity-100'}`}></span>
                             </Link>
+                        ))}
 
-                            <div className="invisible opacity-0 translate-y-1 pointer-events-none group-hover/menu:visible group-hover/menu:opacity-100 group-hover/menu:translate-y-0 group-focus-within/menu:visible group-focus-within/menu:opacity-100 group-focus-within/menu:translate-y-0 group-hover/menu:pointer-events-auto group-focus-within/menu:pointer-events-auto transition-all duration-200 absolute left-0 top-full pt-2 z-[80] min-w-52">
-                                <div className="rounded-xl border border-white/10 bg-black/90 backdrop-blur-md p-2 shadow-[0_12px_30px_rgba(0,0,0,0.45)]">
-                                    <Link
-                                        href="/searchGenres"
-                                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-200 hover:text-white hover:bg-white/10 transition-colors"
-                                    >
-                                        <i className="pi pi-tags text-[10px]" />
-                                        <span>Generos</span>
-                                    </Link>
-                                    <Link
-                                        href="/searchPlatforms"
-                                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-200 hover:text-white hover:bg-white/10 transition-colors"
-                                    >
-                                        <i className="pi pi-desktop text-[10px]" />
-                                        <span>Plataformas</span>
-                                    </Link>
-                                    <Link
-                                        href="/searchStores"
-                                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-200 hover:text-white hover:bg-white/10 transition-colors"
-                                    >
-                                        <i className="pi pi-shopping-bag text-[10px]" />
-                                        <span>Stores</span>
-                                    </Link>
+                        {activeMegaMenu && activeMegaMenuLink && (
+                            <div className="absolute left-0 right-0 top-full pt-3 z-[70] animate-in fade-in slide-in-from-top-8 duration-300 ease-out">
+                                <div className="rounded-xl border border-white/10 bg-black/95 backdrop-blur-md p-7 min-h-[280px] shadow-[0_20px_45px_rgba(0,0,0,0.55)]">
+                                    {activeCards.length > 0 ? (
+                                        <div className="grid grid-cols-3 gap-4">
+                                            {activeCards.map((card) => (
+                                                <Link
+                                                    key={card.id}
+                                                    href={card.href}
+                                                    className="group/card relative overflow-hidden rounded-lg border border-gray-800 hover:border-primary-500/60 transition-colors h-44"
+                                                >
+                                                    <div
+                                                        className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover/card:scale-105"
+                                                        style={{ backgroundImage: `url(${card.image || '/placeholder.jpg'})` }}
+                                                    />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10" />
+                                                    <div className="relative z-10 h-full flex flex-col justify-end p-3">
+                                                        <p className="text-sm font-semibold text-white line-clamp-1">{card.name}</p>
+                                                        {card.meta && (
+                                                            <p className="text-xs text-gray-300 line-clamp-1">{card.meta}</p>
+                                                        )}
+                                                    </div>
+                                                </Link>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-400 py-6 text-center">
+                                            {activeMegaMenu === 'wishlist'
+                                                ? 'Todavía no has guardado ningún juego.'
+                                                : 'Cargando...'}
+                                        </p>
+                                    )}
+
+                                    <div className="mt-5 flex justify-center">
+                                        <Link
+                                            href={activeMegaMenuLink.href}
+                                            className="w-full max-w-sm text-center bg-[#ff4200] hover:bg-[#ff5a1f] text-white font-bold text-sm uppercase tracking-wider py-3 rounded-lg transition-colors"
+                                        >
+                                            Ver más
+                                        </Link>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        {!isViewer && (
-                            <Link
-                                key="Mis juegos"
-                                href="/mygames"
-                                style={{ fontFamily: 'var(--font-press-start-2p)' }}
-                                className={`relative transition-colors font-bold text-[10px] uppercase tracking-wider group py-2 px-3 rounded-md border flex items-center gap-2 ${isRouteActive('/mygames') ? 'text-white bg-primary-500/25 border-primary-500/60 shadow-[0_0_14px_rgba(255,66,0,0.45)]' : 'text-gray-300 hover:text-white border-transparent hover:bg-white/5'}`}
-                            >
-                                <i className={`pi pi-th-large text-white text-lg transition-all duration-300 group-hover:scale-125 group-hover:rotate-12 group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] ${isRouteActive('/mygames') ? 'scale-125 text-primary-400 drop-shadow-[0_0_12px_rgba(255,66,0,0.9)]' : ''}`}></i>
-                                <span>Mis juegos</span>
-                                <span className={`absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-300 ease-out shadow-[0_0_12px_rgba(255,66,0,0.6)] ${isRouteActive('/mygames') ? 'w-full opacity-100' : 'w-0 opacity-0 group-hover:w-full group-hover:opacity-100'}`}></span>
-                            </Link>
                         )}
-                        
                     </div>
 
                     {/* Actions & Mobile Toggle */}
                     <div className="flex items-center gap-4">
-                        <div className="hidden md:block relative" ref={profileMenuRef}>
-                            {user ? (
-                                <>
-                                    <button
-                                        type="button"
-                                        className="cursor-pointer rounded-full border-2 border-transparent hover:border-primary-500/50 transition-all duration-300 relative hover:scale-105 hover:shadow-[0_0_20px_rgba(255,66,0,0.3)] active:scale-95 flex items-center gap-2 pr-2"
-                                        onClick={() => setIsProfileMenuOpen((current) => !current)}
-                                        aria-expanded={isProfileMenuOpen}
-                                        aria-haspopup="menu"
-                                    >
-                                        <Image
-                                            src={profileImage}
-                                            alt="Profile"
-                                            style={{borderRadius:'100px'}}
-                                            width={scrolled ? 40 : 52}
-                                            height={scrolled ? 40 : 52}
-                                            className={`bg-zinc-800 text-white transition-all duration-300 border-radius-full ${scrolled ? 'w-10 h-10' : 'w-13 h-13'} object-cover`}
-                                        />
-                                        <i className={`pi ${isProfileMenuOpen ? 'pi-chevron-up' : 'pi-chevron-down'} text-xs text-gray-300`} />
-                                    </button>
-
-                                    {isProfileMenuOpen && (
-                                        <div className="absolute right-0 mt-3 w-72 rounded-2xl border border-white/10 bg-black/85 backdrop-blur-md shadow-[0_16px_40px_rgba(0,0,0,0.45)] overflow-hidden z-[70]">
-                                            <div className="p-4 border-b border-white/10 bg-gradient-to-r from-black/40 to-primary-500/10">
-                                                <div className="flex items-center gap-3">
-                                                    <Image
-                                                        src={profileImage}
-                                                        alt="Profile"
-                                                        width={44}
-                                                        height={44}
-                                                        className="w-11 h-11 rounded-full object-cover border border-white/20"
-                                                    />
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-semibold text-white truncate">{profileName}</p>
-                                                        {profileEmail ? (
-                                                            <p className="text-xs text-gray-400 truncate">{profileEmail}</p>
-                                                        ) : (
-                                                            <p className="text-xs text-gray-500">Tu perfil de jugador</p>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div className="p-2">
-                                                <Link
-                                                    href="/"
-                                                    onClick={() => setIsProfileMenuOpen(false)}
-                                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm border transition-colors ${isRouteActive('/') ? 'text-white bg-primary-500/30 border-primary-500/60 shadow-[0_0_10px_rgba(255,66,0,0.35)]' : 'text-gray-200 border-transparent hover:text-white hover:bg-white/10'}`}
-                                                >
-                                                    <i className="pi pi-home text-xs" />
-                                                    <span>Inicio</span>
-                                                </Link>
-                                                <Link
-                                                    href="/search"
-                                                    onClick={() => setIsProfileMenuOpen(false)}
-                                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm border transition-colors ${isRouteActive('/search') ? 'text-white bg-primary-500/30 border-primary-500/60 shadow-[0_0_10px_rgba(255,66,0,0.35)]' : 'text-gray-200 border-transparent hover:text-white hover:bg-white/10'}`}
-                                                >
-                                                    <i className="pi pi-search text-xs" />
-                                                    <span>Buscar</span>
-                                                </Link>
-                                                {!isViewer && (
-                                                    <Link
-                                                        href="/mygames"
-                                                        onClick={() => setIsProfileMenuOpen(false)}
-                                                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm border transition-colors ${isRouteActive('/mygames') ? 'text-white bg-primary-500/30 border-primary-500/60 shadow-[0_0_10px_rgba(255,66,0,0.35)]' : 'text-gray-200 border-transparent hover:text-white hover:bg-white/10'}`}
-                                                    >
-                                                        <i className="pi pi-gamepad text-xs" />
-                                                        <span>Mis Juegos</span>
-                                                    </Link>
-                                                )}
-                                                <Link
-                                                    href="/profile"
-                                                    onClick={() => setIsProfileMenuOpen(false)}
-                                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${isRouteActive('/profile') ? 'text-white bg-primary-500/20' : 'text-gray-200 hover:text-white hover:bg-white/10'}`}
-                                                >
-                                                    <i className="pi pi-user text-xs" />
-                                                    <span>Perfil</span>
-                                                </Link>
-
-                                                <div className="my-2 h-px bg-white/10" />
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setIsProfileMenuOpen(false);
-                                                        logout();
-                                                    }}
-                                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-300 hover:text-red-200 hover:bg-red-500/10 transition-colors cursor-pointer"
-                                                >
-                                                    <i className="pi pi-power-off text-xs" />
-                                                    <span>Desconectar</span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <Link href="/login">
-                                    <Button
-                                        label="Login"
-                                        icon="pi pi-user"
-                                        className={`p-button-text text-white hover:bg-white/10 hover:text-primary-400 transition-all duration-300 border border-transparent hover:border-white/10 rounded-full px-6 ${scrolled ? 'p-button-sm' : ''}`}
-                                    />
-                                </Link>
-                            )}
-                        </div>
-
                         <div className="md:hidden">
                             <button
                                 type="button"
@@ -285,7 +267,7 @@ export default function Navbar() {
                                 aria-label="Abrir menu"
                                 className="rounded-full h-10 w-10 flex items-center justify-center text-white border border-white/25 bg-black/35 backdrop-blur-sm transition-all duration-300 hover:scale-110 hover:border-white/45 hover:bg-white/10"
                             >
-                                <i className="pi pi-ellipsis-v text-sm" />
+                                <i className="pi pi-bars text-sm" />
                             </button>
                         </div>
                     </div>
@@ -316,69 +298,30 @@ export default function Navbar() {
                             <i className="pi pi-home text-white transition-all duration-300 group-hover:scale-125 group-hover:text-primary-400"></i>
                             Inicio
                         </Link>
-                        <Link
-                            href="/search"
-                            onClick={() => setMobileMenuOpen(false)}
-                            style={{ fontFamily: 'var(--font-press-start-2p)' }}
-                            className={`p-4 text-xs rounded-lg border transition-colors font-bold flex items-center gap-3 group ${isRouteActive('/search') ? 'text-white bg-primary-500/35 border-primary-500/60 shadow-[0_0_12px_rgba(255,66,0,0.4)]' : 'text-gray-300 border-transparent hover:text-white hover:bg-white/5'}`}
-                        >
-                            <i className="pi pi-search text-white transition-all duration-300 group-hover:scale-125 group-hover:text-primary-400"></i>
-                            Buscar
-                        </Link>
-                        <div className="ml-3 pl-3 border-l border-white/10 flex flex-col gap-2">
+                        {SEARCH_NAV_LINKS.map((item) => (
                             <Link
-                                href="/searchGenres"
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={`p-2.5 text-[11px] rounded-lg border transition-colors font-semibold flex items-center gap-2 ${isRouteActive('/searchGenres') ? 'text-white bg-primary-500/25 border-primary-500/60' : 'text-gray-300 border-transparent hover:text-white hover:bg-white/5'}`}
-                            >
-                                <i className="pi pi-tags text-xs" />
-                                Generos
-                            </Link>
-                            <Link
-                                href="/searchPlatforms"
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={`p-2.5 text-[11px] rounded-lg border transition-colors font-semibold flex items-center gap-2 ${isRouteActive('/searchPlatforms') ? 'text-white bg-primary-500/25 border-primary-500/60' : 'text-gray-300 border-transparent hover:text-white hover:bg-white/5'}`}
-                            >
-                                <i className="pi pi-desktop text-xs" />
-                                Plataformas
-                            </Link>
-                            <Link
-                                href="/searchStores"
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={`p-2.5 text-[11px] rounded-lg border transition-colors font-semibold flex items-center gap-2 ${isRouteActive('/searchStores') ? 'text-white bg-primary-500/25 border-primary-500/60' : 'text-gray-300 border-transparent hover:text-white hover:bg-white/5'}`}
-                            >
-                                <i className="pi pi-shopping-bag text-xs" />
-                                Stores
-                            </Link>
-                        </div>
-                        {!isViewer && (
-                            <Link
-                                href="/mygames"
+                                key={item.href}
+                                href={item.href}
                                 onClick={() => setMobileMenuOpen(false)}
                                 style={{ fontFamily: 'var(--font-press-start-2p)' }}
-                                className={`p-4 text-xs rounded-lg border transition-colors font-bold flex items-center gap-3 group ${isRouteActive('/mygames') ? 'text-white bg-primary-500/35 border-primary-500/60 shadow-[0_0_12px_rgba(255,66,0,0.4)]' : 'text-gray-300 border-transparent hover:text-white hover:bg-white/5'}`}
+                                className={`p-4 text-xs rounded-lg border transition-colors font-bold flex items-center gap-3 group ${isRouteActive(item.href) ? 'text-white bg-primary-500/35 border-primary-500/60 shadow-[0_0_12px_rgba(255,66,0,0.4)]' : 'text-gray-300 border-transparent hover:text-white hover:bg-white/5'}`}
                             >
-                                 <i className="pi pi-th-large text-white transition-all duration-300 group-hover:scale-125 group-hover:text-primary-400"></i>
-                                Juegos
+                                <i className={`pi ${item.icon} text-white transition-all duration-300 group-hover:scale-125 group-hover:text-primary-400`}></i>
+                                {item.label}
                             </Link>
-                        )}
-                    </div>
-
-                    <div className="mt-auto mb-8 px-4">
-                        <Button
-                            label="Cerrar Sesión"
-                            icon="pi pi-power-off"
-                            onClick={() => {
-                                logout();
-                                setMobileMenuOpen(false);
-                            }}
-                            className="w-full p-button-outlined text-white border-white/20 hover:bg-red-500/10 hover:border-red-500 hover:text-red-400 transition-all duration-300"
-                        />
+                        ))}
+                        <Link
+                            href="/wishlist"
+                            onClick={() => setMobileMenuOpen(false)}
+                            style={{ fontFamily: 'var(--font-press-start-2p)' }}
+                            className={`p-4 text-xs rounded-lg border transition-colors font-bold flex items-center gap-3 group ${isRouteActive('/wishlist') ? 'text-white bg-primary-500/35 border-primary-500/60 shadow-[0_0_12px_rgba(255,66,0,0.4)]' : 'text-gray-300 border-transparent hover:text-white hover:bg-white/5'}`}
+                        >
+                            <i className="pi pi-heart text-white transition-all duration-300 group-hover:scale-125 group-hover:text-primary-400"></i>
+                            My Wishlist
+                        </Link>
                     </div>
                 </div>
             </Sidebar>
         </>
     );
-
-    
 }

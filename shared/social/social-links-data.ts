@@ -7,7 +7,7 @@ export interface SocialLinkItem {
 export const ADMIN_SOCIAL_LINKS: SocialLinkItem[] = [
     {
         label: 'GitHub',
-        href: 'https://github.com/Zetasab',
+        href: 'https://github.com/Zetasab/Rct-Zgaming-fe',
         iconClass: 'pi pi-github',
     },
     {

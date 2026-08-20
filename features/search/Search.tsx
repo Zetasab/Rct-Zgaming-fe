@@ -19,16 +19,7 @@ import {
     StoreListItem,
 } from "@/services/GameService";
 import { Game } from "@/models/Game";
-import {
-    getGameResultFlags,
-    getGameResultGameId,
-    loadGameResultList,
-} from "@/services/GameResultState";
-import { authService } from "@/services/AuthService";
-import { useAuth } from "@/context/AuthContext";
-import { isViewerUser } from "@/services/user-role";
 
-type GameStatusFlags = { isPlayed: boolean; isWishlist: boolean };
 type SelectOption = { label: string; value: string };
 
 const PAGE_SIZE = 21;
@@ -51,8 +42,6 @@ const ORDERING_OPTIONS: Array<{ label: string; value: string }> = [
 ];
 
 export default function Search() {
-    const { logout, user } = useAuth();
-    const allowStatusActions = !isViewerUser(user);
     const router = useRouter();
     const pathname = usePathname();
     const hasInitializedAutoSearch = useRef(false);
@@ -76,8 +65,6 @@ export default function Search() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [openMenuId, setOpenMenuId] = useState<number | null>(null);
-    const [gameStatusById, setGameStatusById] = useState<Record<string, GameStatusFlags>>({});
-    const [isStatusLoading, setIsStatusLoading] = useState(false);
 
     const hasPreviousPage = page > 1;
     const hasNextPage = page * PAGE_SIZE < count;
@@ -145,25 +132,6 @@ export default function Search() {
         return `${formatDate(from)},${formatDate(to)}`;
     }, [dateRange]);
 
-    const loadGameStatuses = useCallback(async () => {
-        try {
-            const list = await loadGameResultList(true);
-            const nextState = list.reduce<Record<string, GameStatusFlags>>((acc, item) => {
-                const gameId = getGameResultGameId(item);
-                if (!gameId) {
-                    return acc;
-                }
-
-                acc[gameId] = getGameResultFlags(item);
-                return acc;
-            }, {});
-
-            setGameStatusById(nextState);
-        } catch {
-            setGameStatusById({});
-        }
-    }, []);
-
     const runSearch = useCallback(async (nextPage: number, overrides?: Partial<SearchGamesParams>) => {
         setLoading(true);
         setError(null);
@@ -221,13 +189,6 @@ export default function Search() {
         event.stopPropagation();
         event.preventDefault();
         setOpenMenuId((current) => (current === gameId ? null : gameId));
-    };
-
-    const handleGameStatusChange = (gameId: number, next: GameStatusFlags) => {
-        setGameStatusById((previous) => ({
-            ...previous,
-            [String(gameId)]: next,
-        }));
     };
 
     useEffect(() => {
@@ -376,24 +337,6 @@ export default function Search() {
 
         const initialize = async () => {
             try {
-                const isConnected = await authService.checkUser();
-
-                if (!isConnected) {
-                    console.log("usuario no conectado, redirigiendo al login");
-                    logout();
-                    return;
-                }
-            } catch (error) {
-                const status = (error as { status?: number })?.status;
-                if (status === 401) {
-                    console.log("usuario no conectado, redirigiendo al login");
-                    logout();
-                    return;
-                }
-            }
-
-            try {
-                await loadGameStatuses();
                 await runSearch(initialPage, initialOverrides);
             } finally {
                 isInitializingFromUrl.current = false;
@@ -401,7 +344,7 @@ export default function Search() {
         };
 
         void initialize();
-    }, [loadGameStatuses, logout, runSearch]);
+    }, [runSearch]);
 
     useEffect(() => {
         if (!hasInitializedAutoSearch.current || isInitializingFromUrl.current) {
@@ -604,21 +547,13 @@ export default function Search() {
                         <>
                             <div className="grid grid-cols-2 lg:[grid-template-columns:repeat(auto-fit,minmax(500px,500px))] gap-4 justify-center justify-items-center">
                                 {games.map((game) => {
-                                    const status = gameStatusById[String(game.id)];
-
                                     return (
                                         <GameCard
                                             key={game.id}
                                             game={game}
                                             openMenuId={openMenuId}
                                             toggleMenu={toggleMenu}
-                                            initialIsPlayed={status?.isPlayed}
-                                            initialIsWishlist={status?.isWishlist}
-                                            onStatusChange={handleGameStatusChange}
-                                            globalStatusLoading={isStatusLoading}
-                                            onGlobalStatusLoadingChange={setIsStatusLoading}
                                             className="w-full max-w-[280px] lg:w-[500px] lg:max-w-[500px]"
-                                            allowStatusActions={allowStatusActions}
                                         />
                                     );
                                 })}

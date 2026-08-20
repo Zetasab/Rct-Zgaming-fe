@@ -23,12 +23,12 @@ const pressStart2P = Press_Start_2P({
 });
 
 export const metadata: Metadata = {
-  title: "GamesFe",
+  title: "Zgaming Busca y encuentra juegos",
   description: "Rct-Games-Fe Inicio",
-  applicationName: "GamesFe",
+  applicationName: "Zgaming",
   appleWebApp: {
     capable: true,
-    title: "GamesFe",
+    title: "Zgaming",
     statusBarStyle: "black-translucent",
   },
   icons: {
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   },
   other: {
     "apple-mobile-web-app-capable": "yes",
-    "apple-mobile-web-app-title": "GamesFe",
+    "apple-mobile-web-app-title": "Zgaming",
   },
 };
 

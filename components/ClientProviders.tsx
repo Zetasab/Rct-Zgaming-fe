@@ -1,21 +1,18 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { AuthProvider } from '@/context/AuthContext';
-import AuthGuard from './AuthGuard';
 import { PrimeReactProvider } from 'primereact/api';
 import Navbar from '@/shared/navbar/Navbar'; // Import Navbar
 import { usePathname } from 'next/navigation';
 import FloatingSocialMenu from '@/shared/social/FloatingSocialMenu';
+import ToastProvider from '@/components/ToastProvider';
+import WelcomeDialog from '@/components/WelcomeDialog';
 
 export default function ClientProviders({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const normalizedPathname = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
-    const isLoginPage = normalizedPathname === '/login' || normalizedPathname.endsWith('/login');
     const isLegalPage = normalizedPathname === '/legal' || normalizedPathname.endsWith('/legal');
-    const isForgotPasswordPage = normalizedPathname === '/forgot-password' || normalizedPathname.endsWith('/forgot-password');
-    const isRegisterPage = normalizedPathname === '/register' || normalizedPathname.startsWith('/register/');
-    const hideNavbar = isLoginPage || isLegalPage || isForgotPasswordPage || isRegisterPage;
+    const hideNavbar = isLegalPage;
 
     useEffect(() => {
         if (typeof window === 'undefined') {
@@ -47,13 +44,11 @@ export default function ClientProviders({ children }: { children: React.ReactNod
 
     return (
         <PrimeReactProvider value={{ ripple: true }}>
-            <AuthProvider>
-                <AuthGuard>
-                    {!hideNavbar && <Navbar />}
-                    {children}
-                    <FloatingSocialMenu />
-                </AuthGuard>
-            </AuthProvider>
+            {!hideNavbar && <Navbar />}
+            {children}
+            <FloatingSocialMenu />
+            <ToastProvider />
+            <WelcomeDialog />
         </PrimeReactProvider>
     );
 }

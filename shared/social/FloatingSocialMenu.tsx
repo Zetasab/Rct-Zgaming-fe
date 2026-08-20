@@ -1,11 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { useAuth } from '@/context/AuthContext';
 import SocialLinks from './SocialLinks';
 
 export default function FloatingSocialMenu() {
-    const { isAuthenticated } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -26,10 +24,6 @@ export default function FloatingSocialMenu() {
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, [isOpen]);
-
-    if (!isAuthenticated) {
-        return null;
-    }
 
     return (
         <div className="fixed bottom-5 right-5 z-90" ref={menuRef}>
