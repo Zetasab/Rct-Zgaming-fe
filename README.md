@@ -83,9 +83,10 @@ El frontend es una app Next.js exportada como sitio estático (`output: 'export'
 │
 ├── models/                      # Tipos e interfaces TypeScript
 ├── shared/                      # Navbar (con mega menú), Footer y enlaces sociales compartidos
-├── public/                      # Recursos estáticos
-└── vercel.json                  # Configuración de build/despliegue en Vercel
+└── public/                      # Recursos estáticos
 ```
+
+Sin `vercel.json`: Vercel detecta el framework Next.js automáticamente (incluido `output: 'export'`) y despliega el export estático junto a las funciones de `api/` sin configuración manual de build/output.
 
 ---
 
