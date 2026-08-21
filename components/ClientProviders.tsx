@@ -7,12 +7,17 @@ import { usePathname } from 'next/navigation';
 import FloatingSocialMenu from '@/shared/social/FloatingSocialMenu';
 import ToastProvider from '@/components/ToastProvider';
 import WelcomeDialog from '@/components/WelcomeDialog';
+import { startVisitTracking } from '@/services/visitTracking';
 
 export default function ClientProviders({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const normalizedPathname = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
     const isLegalPage = normalizedPathname === '/legal' || normalizedPathname.endsWith('/legal');
     const hideNavbar = isLegalPage;
+
+    useEffect(() => {
+        startVisitTracking();
+    }, []);
 
     useEffect(() => {
         if (typeof window === 'undefined') {
