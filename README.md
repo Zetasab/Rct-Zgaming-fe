@@ -10,6 +10,14 @@
 
 </div>
 
+### Documentación técnica
+
+<p align="left">
+  <a href="docs/DOCUMENTACION_TECNICA.pdf"><strong>📄 Documentación Técnica (PDF)</strong></a>
+  <br/>
+  <a href="docs/MANUAL_USUARIO.pdf"><strong>📘 Manual de Usuario (PDF)</strong></a>
+</p>
+
 ---
 
 ## 📋 Descripción
